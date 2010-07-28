@@ -1,0 +1,106 @@
+<html>
+<head>
+<title>WhereInThe</title>
+<meta name="viewport" content="initial-scale=1.0, user-scalable=no" />
+<script type="text/javascript" src="http://ajax.googleapis.com/ajax/libs/jquery/1.4.2/jquery.min.js"></script>
+<script type="text/javascript" src="http://maps.google.com/maps/api/js?sensor=true"></script>
+<script type="text/javascript" src="/static/maps.google.circleoverlay.js"></script>
+<script type="text/javascript" src="/static/simplegeo.js"></script>
+<script type="text/javascript">
+  $(document).ready(function() {
+    var currentcolor = "#0A60BA";
+    var color = "#BA600A";
+
+    $.getJSON('/start.json', function(data) {
+        //document.title = "Last updated: " + new Date(data.created * 1000);
+        var coords = data.geometry.coordinates
+
+        var latlng = new google.maps.LatLng(coords[1], coords[0]);
+        var myOptions = {
+          zoom: 15,
+          center: latlng,
+          mapTypeId: google.maps.MapTypeId.ROADMAP
+        };
+        var map = new google.maps.Map(document.getElementById("map_canvas"), myOptions);
+
+        var circle = null;
+        var lastLatlng = null;
+        var lastAccuracy = null;
+
+        simplegeo.Location.watch(function(position) {
+            console.log("Got location", position);
+            var latlng = new google.maps.LatLng(position.coords.latitude, position.coords.longitude);
+            var accuracy = position.coords.accuracy;
+
+            if (lastLatlng) {
+                if (lastLatlng.equals(latlng) && lastAccuracy === accuracy) {
+                    // we haven't moved, so don't change
+                    return;
+                }
+                console.log("clearing");
+                //circle.clear();
+                circle.polygon.setMap(null);
+                circle.setMap(null);
+                //circle2.clear();
+            }
+
+            // Convert meters to miles
+            var radius = 0.000621371192 * position.coords.accuracy;
+
+            circle = new CircleOverlay(latlng, radius, currentcolor, 1, 1, currentcolor, 0.25);
+            circle.setMap(map);
+            circle.map = map;
+
+            //circle2 = new CircleOverlay(latlng, 0.005, currentcolor, 1, 1, currentcolor, 1);
+            //circle2.setMap(map);
+            //circle2.map = map;
+
+            $.post('/update.json', {lat: latlng.lat(), lon: latlng.lng(), accuracy: accuracy});
+            
+            map.panTo(latlng);
+
+            lastLatlng = latlng;
+            lastAccuracy = accuracy;
+        });
+
+        var lastNearby = null;
+        var otherCircles = null;
+        window.setInterval(function() {
+            if (lastLatlng) {
+                $.getJSON('/nearby.json', {lat: lastLatlng.lat(), lon:lastLatlng.lng()}, function(nearby) {
+                    console.log("nearby count: " + (nearby && nearby.length));
+                    if (! nearby) {
+                        return
+                    }
+                    if (otherCircles) {
+                        if (lastNearby.length === nearby.length &&
+                            $.grep(nearby, function(e,i){ nearby[i].id != lastNearby[i].id || nearby[i].created != lastNearby[i].created }).length == 0) {
+                            return;
+                        }
+                        $.each(otherCircles, function() { this.polygon.setMap(null); this.setMap(null); });
+                        otherCircles = null;
+                    }
+                    otherCircles = [];
+                    $.each(nearby, function() {
+                        var coords = this.geometry.coordinates;
+                        var accuracy = this.properties.accuracy;
+                        var latlng = new google.maps.LatLng(coords[1], coords[0]);
+                        // Convert meters to miles
+                        var radius = 0.000621371192 * accuracy;
+                        var circle = new CircleOverlay(latlng, radius, color, 1, 1, color, 0.25);
+                        circle.setMap(map);
+                        circle.map = map;
+                        otherCircles.push(circle);
+                    });
+                    lastNearby = nearby;
+                });
+            }
+        }, 5 * 1000);
+    });
+  });
+</script>
+</head>
+<body>
+  <div id="map_canvas" style="width:100%; height:100%">Loading Location...</div>
+</body>
+</html>
